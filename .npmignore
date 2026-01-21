@@ -8,6 +8,7 @@ test/
 tsconfig.json
 jest.config.js
 eslint.config.mjs
+.release-it.json
 
 # Internal documentation
 CLAUDE.md
