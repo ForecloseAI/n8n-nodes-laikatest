@@ -1,6 +1,6 @@
 {
   "name": "n8n-nodes-laikatest",
-  "version": "1.0.1",
+  "version": "1.0.2",
   "description": "n8n community node for LaikaTest prompt management and A/B testing",
   "author": {
     "name": "LaikaTest",
