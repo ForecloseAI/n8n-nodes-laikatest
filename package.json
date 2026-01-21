@@ -2,6 +2,18 @@
   "name": "n8n-nodes-laikatest",
   "version": "1.0.1",
   "description": "n8n community node for LaikaTest prompt management and A/B testing",
+  "author": {
+    "name": "LaikaTest",
+    "email": "founder@laikatest.com"
+  },
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/ForecloseAI/n8n-nodes-laikatest.git"
+  },
+  "homepage": "https://github.com/ForecloseAI/n8n-nodes-laikatest",
+  "bugs": {
+    "url": "https://github.com/ForecloseAI/n8n-nodes-laikatest/issues"
+  },
   "keywords": [
     "n8n-community-node-package",
     "laikatest",
