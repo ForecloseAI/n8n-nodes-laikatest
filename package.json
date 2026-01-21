@@ -1,0 +1,50 @@
+{
+  "name": "n8n-nodes-laikatest",
+  "version": "1.0.0",
+  "description": "n8n community node for LaikaTest prompt management and A/B testing",
+  "keywords": [
+    "n8n-community-node-package",
+    "laikatest",
+    "prompts",
+    "a/b-testing",
+    "llm"
+  ],
+  "main": "dist/index.js",
+  "scripts": {
+    "build": "tsc && npm run copy-assets",
+    "copy-assets": "cp src/nodes/LaikaTest/*.svg dist/nodes/LaikaTest/",
+    "dev": "tsc --watch",
+    "lint": "eslint . --ext .ts",
+    "test": "jest",
+    "prepublishOnly": "npm run build"
+  },
+  "n8n": {
+    "n8nNodesApiVersion": 1,
+    "credentials": [
+      "dist/credentials/LaikaTestApi.credentials.js"
+    ],
+    "nodes": [
+      "dist/nodes/LaikaTest/LaikaTest.node.js"
+    ]
+  },
+  "dependencies": {
+    "@laikatest/js-client": "^2.1.2"
+  },
+  "devDependencies": {
+    "@types/jest": "^29.5.0",
+    "@types/node": "^20.0.0",
+    "jest": "^29.5.0",
+    "n8n-core": "*",
+    "n8n-workflow": "*",
+    "ts-jest": "^29.1.0",
+    "typescript": "^5.0.0"
+  },
+  "peerDependencies": {
+    "n8n-core": "*",
+    "n8n-workflow": "*"
+  },
+  "engines": {
+    "node": ">=18.0.0"
+  },
+  "license": "MIT"
+}
