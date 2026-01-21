@@ -1,4 +1,4 @@
-import { ICredentialType, INodeProperties } from 'n8n-workflow';
+import { ICredentialTestRequest, ICredentialType, INodeProperties } from 'n8n-workflow';
 
 // Credentials for LaikaTest API authentication
 export class LaikaTestApi implements ICredentialType {
@@ -24,4 +24,16 @@ export class LaikaTestApi implements ICredentialType {
       description: 'Base URL for the LaikaTest API',
     },
   ];
+
+  // Test credentials by calling auth verify endpoint
+  test: ICredentialTestRequest = {
+    request: {
+      baseURL: '={{$credentials.baseUrl}}',
+      url: '/api/v1/auth/verify',
+      method: 'GET',
+      headers: {
+        Authorization: '=Bearer {{$credentials.apiKey}}',
+      },
+    },
+  };
 }
