@@ -1,0 +1,26 @@
+# Source files (dist is enough)
+src/
+
+# Test files
+test/
+
+# Config files
+tsconfig.json
+jest.config.js
+eslint.config.mjs
+
+# Internal documentation
+CLAUDE.md
+prd.md
+
+# Claude Code settings
+.claude/
+
+# Git
+.git/
+.gitignore
+
+# Development
+node_modules/
+*.log
+.DS_Store
