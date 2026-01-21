@@ -1,4 +1,4 @@
-import { LaikaTestApi } from '../src/credentials/LaikaTestApi.credentials';
+import { LaikaTestApi } from '../credentials/LaikaTestApi.credentials';
 
 describe('LaikaTestApi Credentials', () => {
   let credentials: LaikaTestApi;

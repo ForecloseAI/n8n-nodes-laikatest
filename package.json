@@ -21,10 +21,10 @@
     "a/b-testing",
     "llm"
   ],
-  "main": "dist/index.js",
+  "main": "dist/src/index.js",
   "scripts": {
     "build": "tsc && npm run copy-assets",
-    "copy-assets": "cp src/nodes/LaikaTest/*.svg dist/nodes/LaikaTest/",
+    "copy-assets": "cp src/nodes/LaikaTest/*.svg dist/src/nodes/LaikaTest/",
     "dev": "tsc --watch",
     "lint": "eslint .",
     "test": "jest",
@@ -36,7 +36,7 @@
       "dist/credentials/LaikaTestApi.credentials.js"
     ],
     "nodes": [
-      "dist/nodes/LaikaTest/LaikaTest.node.js"
+      "dist/src/nodes/LaikaTest/LaikaTest.node.js"
     ]
   },
   "devDependencies": {
