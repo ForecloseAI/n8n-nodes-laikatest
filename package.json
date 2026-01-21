@@ -14,7 +14,7 @@
     "build": "tsc && npm run copy-assets",
     "copy-assets": "cp src/nodes/LaikaTest/*.svg dist/nodes/LaikaTest/",
     "dev": "tsc --watch",
-    "lint": "eslint . --ext .ts",
+    "lint": "eslint .",
     "test": "jest",
     "prepublishOnly": "npm run build"
   },
@@ -31,13 +31,16 @@
     "@laikatest/js-client": "^2.1.2"
   },
   "devDependencies": {
+    "@eslint/js": "^9.39.2",
     "@types/jest": "^29.5.0",
     "@types/node": "^20.0.0",
+    "eslint": "^9.39.2",
     "jest": "^29.5.0",
     "n8n-core": "*",
     "n8n-workflow": "*",
     "ts-jest": "^29.1.0",
-    "typescript": "^5.0.0"
+    "typescript": "^5.0.0",
+    "typescript-eslint": "^8.53.1"
   },
   "peerDependencies": {
     "n8n-core": "*",
