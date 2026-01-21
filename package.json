@@ -1,6 +1,6 @@
 {
   "name": "n8n-nodes-laikatest",
-  "version": "1.0.3",
+  "version": "1.0.4",
   "description": "n8n community node for LaikaTest prompt management and A/B testing",
   "author": {
     "name": "LaikaTest",
@@ -23,9 +23,7 @@
   ],
   "main": "dist/index.js",
   "scripts": {
-    "build": "npm run build:bundle && npm run build:types && npm run copy-assets",
-    "build:bundle": "node esbuild.config.mjs",
-    "build:types": "tsc --emitDeclarationOnly --declaration --outDir dist",
+    "build": "tsc && npm run copy-assets",
     "copy-assets": "cp src/nodes/LaikaTest/*.svg dist/nodes/LaikaTest/",
     "dev": "tsc --watch",
     "lint": "eslint .",
@@ -42,11 +40,9 @@
     ]
   },
   "devDependencies": {
-    "@laikatest/js-client": "^2.1.2",
     "@eslint/js": "^9.39.2",
     "@types/jest": "^29.5.0",
     "@types/node": "^20.0.0",
-    "esbuild": "^0.27.2",
     "eslint": "^9.39.2",
     "jest": "^29.5.0",
     "n8n-core": "*",

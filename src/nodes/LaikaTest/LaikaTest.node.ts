@@ -6,15 +6,55 @@ import {
   INodeTypeDescription,
   NodeApiError,
   NodeOperationError,
+  IHttpRequestOptions,
 } from 'n8n-workflow';
-import {
-  LaikaTest as LaikaTestClient,
-  ValidationError,
-  AuthenticationError,
-  NetworkError,
-  LaikaServiceError,
-  ScoreInput,
-} from '@laikatest/js-client';
+
+// Inject variables into {{placeholder}} syntax
+function injectVariables(
+  content: string | object | unknown[],
+  variables: Record<string, string>
+): string | object | unknown[] {
+  if (!variables || Object.keys(variables).length === 0) {
+    return content;
+  }
+
+  if (typeof content === 'string') {
+    return content.replace(/\{\{([^}]+)\}\}/g, (match, name) => {
+      const key = name.trim();
+      return key in variables ? String(variables[key]) : match;
+    });
+  }
+
+  if (Array.isArray(content)) {
+    return content.map((item) => injectVariables(item as string, variables));
+  }
+
+  if (content && typeof content === 'object') {
+    const result: Record<string, unknown> = {};
+    for (const [key, value] of Object.entries(content)) {
+      result[key] = injectVariables(value as string, variables);
+    }
+    return result;
+  }
+
+  return content;
+}
+
+// Generate UUID for score tracking
+function generateUUID(): string {
+  return 'xxxxxxxx-xxxx-4xxx-yxxx-xxxxxxxxxxxx'.replace(/[xy]/g, (c) => {
+    const r = (Math.random() * 16) | 0;
+    const v = c === 'x' ? r : (r & 0x3) | 0x8;
+    return v.toString(16);
+  });
+}
+
+// Score input type
+interface ScoreInput {
+  name: string;
+  type: 'int' | 'float' | 'bool' | 'string';
+  value: number | boolean | string;
+}
 
 // Convert n8n string inputs to typed score objects
 function convertScore(raw: {
@@ -53,58 +93,48 @@ function convertScore(raw: {
   }
 }
 
-// Map client errors to n8n errors
-function mapErrorToN8n(
-  error: unknown,
-  ctx: IExecuteFunctions,
-  itemIndex: number
-): NodeApiError | NodeOperationError {
-  if (error instanceof ValidationError) {
-    return new NodeOperationError(ctx.getNode(), error.message, { itemIndex });
-  }
-  if (error instanceof AuthenticationError) {
-    return new NodeApiError(ctx.getNode(), { message: error.message }, {
-      httpCode: '401',
-      itemIndex,
-    });
-  }
-  if (error instanceof NetworkError) {
-    return new NodeApiError(ctx.getNode(), { message: error.message }, {
-      itemIndex,
-    });
-  }
-  if (error instanceof LaikaServiceError) {
-    return new NodeApiError(ctx.getNode(), { message: error.message }, {
-      httpCode: String(error.statusCode),
-      itemIndex,
-    });
-  }
-  if (error instanceof Error) {
-    return new NodeOperationError(ctx.getNode(), error.message, { itemIndex });
-  }
-  return new NodeOperationError(ctx.getNode(), 'Unknown error', { itemIndex });
-}
-
 // Handle Get Prompt operation
 async function handleGetPrompt(
   ctx: IExecuteFunctions,
-  client: LaikaTestClient,
   itemIndex: number
 ): Promise<IDataObject> {
+  const credentials = await ctx.getCredentials('laikaTestApi');
+  const apiKey = credentials.apiKey as string;
+  const baseUrl = (credentials.baseUrl as string) || 'https://api.laikatest.com';
+
   const promptName = ctx.getNodeParameter('promptName', itemIndex) as string;
   const versionId = ctx.getNodeParameter('versionId', itemIndex) as string;
   const variables = ctx.getNodeParameter('variables', itemIndex) as {
     variableValues?: Array<{ key: string; value: string }>;
   };
 
-  const options: { versionId?: string; bypassCache: boolean } = {
-    bypassCache: true,
-  };
+  // Build URL
+  const encodedName = encodeURIComponent(promptName);
+  let url = `${baseUrl}/api/v1/prompts/by-name/${encodedName}`;
   if (versionId) {
-    options.versionId = versionId;
+    url += `?versionNumber=${encodeURIComponent(versionId)}`;
   }
 
-  let prompt = await client.getPrompt(promptName, options);
+  const options: IHttpRequestOptions = {
+    method: 'GET',
+    url,
+    headers: {
+      Authorization: `Bearer ${apiKey}`,
+      'Content-Type': 'application/json',
+    },
+    json: true,
+  };
+
+  const response = await ctx.helpers.httpRequest(options);
+
+  if (!response.success) {
+    throw new NodeApiError(ctx.getNode(), { message: response.error || 'API error' });
+  }
+
+  // Parse content
+  const parsedContent = JSON.parse(response.data.content);
+  const promptType = response.data.type;
+  let content = promptType === 'text' ? parsedContent[0].content : parsedContent;
 
   // Compile if variables provided
   if (variables.variableValues && variables.variableValues.length > 0) {
@@ -112,32 +142,31 @@ async function handleGetPrompt(
     for (const { key, value } of variables.variableValues) {
       if (key) varsObj[key] = value;
     }
-    prompt = prompt.compile(varsObj);
+    content = injectVariables(content, varsObj);
   }
 
   return {
-    content: prompt.getContent() as IDataObject | string,
-    type: prompt.getType(),
-    promptVersionId: prompt.getPromptVersionId(),
+    content: content as IDataObject | string,
+    type: promptType,
+    promptVersionId: response.data.promptVersionId || null,
   };
 }
 
 // Handle Get Experimental Prompt operation
 async function handleGetExperimentPrompt(
   ctx: IExecuteFunctions,
-  client: LaikaTestClient,
   itemIndex: number
 ): Promise<IDataObject> {
-  const experimentTitle = ctx.getNodeParameter(
-    'experimentTitle',
-    itemIndex
-  ) as string;
+  const credentials = await ctx.getCredentials('laikaTestApi');
+  const apiKey = credentials.apiKey as string;
+  const baseUrl = (credentials.baseUrl as string) || 'https://api.laikatest.com';
+
+  const experimentTitle = ctx.getNodeParameter('experimentTitle', itemIndex) as string;
   const userId = ctx.getNodeParameter('userId', itemIndex) as string;
   const sessionId = ctx.getNodeParameter('sessionId', itemIndex) as string;
-  const additionalContext = ctx.getNodeParameter(
-    'additionalContext',
-    itemIndex
-  ) as { contextValues?: Array<{ key: string; value: string }> };
+  const additionalContext = ctx.getNodeParameter('additionalContext', itemIndex) as {
+    contextValues?: Array<{ key: string; value: string }>;
+  };
   const variables = ctx.getNodeParameter('experimentVariables', itemIndex) as {
     variableValues?: Array<{ key: string; value: string }>;
   };
@@ -153,7 +182,29 @@ async function handleGetExperimentPrompt(
     }
   }
 
-  let prompt = await client.getExperimentPrompt(experimentTitle, context);
+  const options: IHttpRequestOptions = {
+    method: 'POST',
+    url: `${baseUrl}/api/v3/experiments/evaluate`,
+    headers: {
+      Authorization: `Bearer ${apiKey}`,
+      'Content-Type': 'application/json',
+    },
+    body: { experimentTitle, context },
+    json: true,
+  };
+
+  const response = await ctx.helpers.httpRequest(options);
+
+  if (!response.success || !response.data) {
+    throw new NodeApiError(ctx.getNode(), { message: response.error || 'API error' });
+  }
+
+  const data = response.data;
+
+  // Parse prompt content
+  const parsedContent = JSON.parse(data.prompt.content);
+  const promptType = data.prompt.type;
+  let content = promptType === 'text' ? parsedContent[0].content : parsedContent;
 
   // Compile if variables provided
   if (variables.variableValues && variables.variableValues.length > 0) {
@@ -161,25 +212,28 @@ async function handleGetExperimentPrompt(
     for (const { key, value } of variables.variableValues) {
       if (key) varsObj[key] = value;
     }
-    prompt = prompt.compile(varsObj);
+    content = injectVariables(content, varsObj);
   }
 
   return {
-    content: prompt.getContent() as IDataObject | string,
-    type: prompt.getType(),
-    experimentId: prompt.getExperimentId(),
-    bucketId: prompt.getBucketId(),
-    promptVersionId: prompt.getPromptVersionId(),
-    promptId: prompt.getPromptId(),
+    content: content as IDataObject | string,
+    type: promptType,
+    experimentId: data.experimentId,
+    bucketId: data.bucketId,
+    promptVersionId: data.prompt.promptVersionId,
+    promptId: data.prompt.promptId,
   };
 }
 
 // Handle Push Scores operation
 async function handlePushScores(
   ctx: IExecuteFunctions,
-  client: LaikaTestClient,
   itemIndex: number
 ): Promise<IDataObject> {
+  const credentials = await ctx.getCredentials('laikaTestApi');
+  const apiKey = credentials.apiKey as string;
+  const baseUrl = (credentials.baseUrl as string) || 'https://api.laikatest.com';
+
   const experimentId = ctx.getNodeParameter('experimentId', itemIndex) as string;
   const bucketId = ctx.getNodeParameter('bucketId', itemIndex) as string;
   const promptVersionId = ctx.getNodeParameter('promptVersionId', itemIndex) as string;
@@ -210,22 +264,36 @@ async function handlePushScores(
   // Convert scores to typed format
   const scores: ScoreInput[] = scoresInput.scoreValues.map(convertScore);
 
-  // Build options
-  const options: { userId?: string; sessionId?: string } = {};
-  if (userId) options.userId = userId;
-  if (sessionId) options.sessionId = sessionId;
-
-  const response = await client.pushScore(
-    experimentId,
+  // Build request body
+  const requestBody: Record<string, unknown> = {
+    expId: experimentId,
     bucketId,
     promptVersionId,
     scores,
-    options as { userId: string } | { sessionId: string } | { userId: string; sessionId: string }
-  );
+    source: 'n8n',
+    clientVersion: '1.0.0',
+    sdkEventId: generateUUID(),
+  };
+
+  if (userId) requestBody.userId = userId;
+  if (sessionId) requestBody.sessionId = sessionId;
+
+  const options: IHttpRequestOptions = {
+    method: 'POST',
+    url: `${baseUrl}/api/v1/scores`,
+    headers: {
+      Authorization: `Bearer ${apiKey}`,
+      'Content-Type': 'application/json',
+    },
+    body: requestBody,
+    json: true,
+  };
+
+  const response = await ctx.helpers.httpRequest(options);
 
   return {
-    success: response.success,
-    statusCode: response.statusCode,
+    success: response.success || true,
+    statusCode: 200,
     data: response.data as IDataObject,
   };
 }
@@ -303,18 +371,8 @@ export class LaikaTest implements INodeType {
             name: 'variableValues',
             displayName: 'Variable',
             values: [
-              {
-                displayName: 'Key',
-                name: 'key',
-                type: 'string',
-                default: '',
-              },
-              {
-                displayName: 'Value',
-                name: 'value',
-                type: 'string',
-                default: '',
-              },
+              { displayName: 'Key', name: 'key', type: 'string', default: '' },
+              { displayName: 'Value', name: 'value', type: 'string', default: '' },
             ],
           },
         ],
@@ -358,18 +416,8 @@ export class LaikaTest implements INodeType {
             name: 'contextValues',
             displayName: 'Context',
             values: [
-              {
-                displayName: 'Key',
-                name: 'key',
-                type: 'string',
-                default: '',
-              },
-              {
-                displayName: 'Value',
-                name: 'value',
-                type: 'string',
-                default: '',
-              },
+              { displayName: 'Key', name: 'key', type: 'string', default: '' },
+              { displayName: 'Value', name: 'value', type: 'string', default: '' },
             ],
           },
         ],
@@ -387,18 +435,8 @@ export class LaikaTest implements INodeType {
             name: 'variableValues',
             displayName: 'Variable',
             values: [
-              {
-                displayName: 'Key',
-                name: 'key',
-                type: 'string',
-                default: '',
-              },
-              {
-                displayName: 'Value',
-                name: 'value',
-                type: 'string',
-                default: '',
-              },
+              { displayName: 'Key', name: 'key', type: 'string', default: '' },
+              { displayName: 'Value', name: 'value', type: 'string', default: '' },
             ],
           },
         ],
@@ -499,48 +537,36 @@ export class LaikaTest implements INodeType {
     const items = this.getInputData();
     const returnData: INodeExecutionData[] = [];
 
-    // Get credentials
-    const credentials = await this.getCredentials('laikaTestApi');
-    const apiKey = credentials.apiKey as string;
-    const baseUrl = (credentials.baseUrl as string) || 'https://api.laikatest.com';
+    for (let i = 0; i < items.length; i++) {
+      try {
+        const operation = this.getNodeParameter('operation', i) as string;
+        let result: IDataObject;
 
-    // Create client with caching disabled
-    const client = new LaikaTestClient(apiKey, { baseUrl, cacheEnabled: false });
-
-    try {
-      for (let i = 0; i < items.length; i++) {
-        try {
-          const operation = this.getNodeParameter('operation', i) as string;
-          let result: IDataObject;
-
-          if (operation === 'getPrompt') {
-            result = await handleGetPrompt(this, client, i);
-          } else if (operation === 'getExperimentPrompt') {
-            result = await handleGetExperimentPrompt(this, client, i);
-          } else if (operation === 'pushScores') {
-            result = await handlePushScores(this, client, i);
-          } else {
-            throw new NodeOperationError(
-              this.getNode(),
-              `Unknown operation: ${operation}`,
-              { itemIndex: i }
-            );
-          }
-
-          returnData.push({ json: result });
-        } catch (error) {
-          if (this.continueOnFail()) {
-            returnData.push({
-              json: { error: (error as Error).message },
-              pairedItem: { item: i },
-            });
-            continue;
-          }
-          throw mapErrorToN8n(error, this, i);
+        if (operation === 'getPrompt') {
+          result = await handleGetPrompt(this, i);
+        } else if (operation === 'getExperimentPrompt') {
+          result = await handleGetExperimentPrompt(this, i);
+        } else if (operation === 'pushScores') {
+          result = await handlePushScores(this, i);
+        } else {
+          throw new NodeOperationError(
+            this.getNode(),
+            `Unknown operation: ${operation}`,
+            { itemIndex: i }
+          );
         }
+
+        returnData.push({ json: result });
+      } catch (error) {
+        if (this.continueOnFail()) {
+          returnData.push({
+            json: { error: (error as Error).message },
+            pairedItem: { item: i },
+          });
+          continue;
+        }
+        throw error;
       }
-    } finally {
-      client.destroy();
     }
 
     return [returnData];

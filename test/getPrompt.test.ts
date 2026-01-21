@@ -1,57 +1,13 @@
 import { LaikaTest } from '../src/nodes/LaikaTest/LaikaTest.node';
 
-// Mock the js-client module
-jest.mock('@laikatest/js-client', () => {
-  // Create compiled prompt mock
-  const createCompiledPrompt = (content: string) => ({
-    getContent: jest.fn().mockReturnValue(content),
-    getType: jest.fn().mockReturnValue('text'),
-    getPromptVersionId: jest.fn().mockReturnValue('v123'),
-    compile: jest.fn(),
-  });
-
-  const mockPrompt = {
-    getContent: jest.fn().mockReturnValue('Hello {{name}}'),
-    getType: jest.fn().mockReturnValue('text'),
-    getPromptVersionId: jest.fn().mockReturnValue('v123'),
-    compile: jest.fn().mockImplementation((vars: Record<string, string>) => {
-      let content = 'Hello {{name}}';
-      for (const [key, value] of Object.entries(vars)) {
-        content = content.replace(`{{${key}}}`, value);
-      }
-      return createCompiledPrompt(content);
-    }),
-  };
-
-  return {
-    LaikaTest: jest.fn().mockImplementation(() => ({
-      getPrompt: jest.fn().mockResolvedValue(mockPrompt),
-      getExperimentPrompt: jest.fn(),
-      pushScore: jest.fn(),
-      destroy: jest.fn(),
-    })),
-    ValidationError: class ValidationError extends Error {
-      name = 'ValidationError';
-    },
-    AuthenticationError: class AuthenticationError extends Error {
-      name = 'AuthenticationError';
-    },
-    NetworkError: class NetworkError extends Error {
-      name = 'NetworkError';
-    },
-    LaikaServiceError: class LaikaServiceError extends Error {
-      name = 'LaikaServiceError';
-      statusCode = 500;
-    },
-  };
-});
-
 describe('Get Prompt Operation', () => {
   let node: LaikaTest;
   let mockContext: any;
+  let mockHttpRequest: jest.Mock;
 
   beforeEach(() => {
     node = new LaikaTest();
+    mockHttpRequest = jest.fn();
     jest.clearAllMocks();
 
     mockContext = {
@@ -63,6 +19,7 @@ describe('Get Prompt Operation', () => {
       getNodeParameter: jest.fn(),
       getNode: jest.fn().mockReturnValue({ name: 'LaikaTest' }),
       continueOnFail: jest.fn().mockReturnValue(false),
+      helpers: { httpRequest: mockHttpRequest },
     };
   });
 
@@ -93,47 +50,72 @@ describe('Get Prompt Operation', () => {
     );
   });
 
-  it('should call client.getPrompt with promptName', async () => {
-    const { LaikaTest } = require('@laikatest/js-client');
+  it('should call httpRequest with correct URL', async () => {
+    mockHttpRequest.mockResolvedValue({
+      success: true,
+      data: {
+        content: JSON.stringify([{ content: 'Hello {{name}}' }]),
+        type: 'text',
+        promptVersionId: 'v123',
+      },
+    });
 
     mockContext.getNodeParameter
-      .mockReturnValueOnce('getPrompt') // operation
-      .mockReturnValueOnce('my-prompt') // promptName
-      .mockReturnValueOnce('') // versionId
-      .mockReturnValueOnce({}); // variables
+      .mockReturnValueOnce('getPrompt')
+      .mockReturnValueOnce('my-prompt')
+      .mockReturnValueOnce('')
+      .mockReturnValueOnce({});
 
-    const result = await node.execute.call(mockContext);
+    await node.execute.call(mockContext);
 
-    const clientInstance = LaikaTest.mock.results[0].value;
-    expect(clientInstance.getPrompt).toHaveBeenCalledWith('my-prompt', {
-      bypassCache: true,
-    });
+    expect(mockHttpRequest).toHaveBeenCalledWith(
+      expect.objectContaining({
+        method: 'GET',
+        url: 'https://api.laikatest.com/api/v1/prompts/by-name/my-prompt',
+      })
+    );
   });
 
   it('should pass versionId when provided', async () => {
-    const { LaikaTest } = require('@laikatest/js-client');
+    mockHttpRequest.mockResolvedValue({
+      success: true,
+      data: {
+        content: JSON.stringify([{ content: 'Hello' }]),
+        type: 'text',
+        promptVersionId: 'v123',
+      },
+    });
 
     mockContext.getNodeParameter
       .mockReturnValueOnce('getPrompt')
       .mockReturnValueOnce('my-prompt')
       .mockReturnValueOnce('v10')
-      .mockReturnValueOnce({}); // variables
+      .mockReturnValueOnce({});
 
     await node.execute.call(mockContext);
 
-    const clientInstance = LaikaTest.mock.results[0].value;
-    expect(clientInstance.getPrompt).toHaveBeenCalledWith('my-prompt', {
-      bypassCache: true,
-      versionId: 'v10',
-    });
+    expect(mockHttpRequest).toHaveBeenCalledWith(
+      expect.objectContaining({
+        url: 'https://api.laikatest.com/api/v1/prompts/by-name/my-prompt?versionNumber=v10',
+      })
+    );
   });
 
   it('should return { content, type, promptVersionId }', async () => {
+    mockHttpRequest.mockResolvedValue({
+      success: true,
+      data: {
+        content: JSON.stringify([{ content: 'Hello {{name}}' }]),
+        type: 'text',
+        promptVersionId: 'v123',
+      },
+    });
+
     mockContext.getNodeParameter
       .mockReturnValueOnce('getPrompt')
       .mockReturnValueOnce('my-prompt')
       .mockReturnValueOnce('')
-      .mockReturnValueOnce({}); // variables
+      .mockReturnValueOnce({});
 
     const result = await node.execute.call(mockContext);
 
@@ -144,21 +126,6 @@ describe('Get Prompt Operation', () => {
       type: 'text',
       promptVersionId: 'v123',
     });
-  });
-
-  it('should destroy client after execution', async () => {
-    const { LaikaTest } = require('@laikatest/js-client');
-
-    mockContext.getNodeParameter
-      .mockReturnValueOnce('getPrompt')
-      .mockReturnValueOnce('my-prompt')
-      .mockReturnValueOnce('')
-      .mockReturnValueOnce({}); // variables
-
-    await node.execute.call(mockContext);
-
-    const clientInstance = LaikaTest.mock.results[0].value;
-    expect(clientInstance.destroy).toHaveBeenCalled();
   });
 
   it('should have variables field for getPrompt operation', () => {
@@ -173,6 +140,15 @@ describe('Get Prompt Operation', () => {
   });
 
   it('should compile prompt when variables provided', async () => {
+    mockHttpRequest.mockResolvedValue({
+      success: true,
+      data: {
+        content: JSON.stringify([{ content: 'Hello {{name}}' }]),
+        type: 'text',
+        promptVersionId: 'v123',
+      },
+    });
+
     mockContext.getNodeParameter
       .mockReturnValueOnce('getPrompt')
       .mockReturnValueOnce('my-prompt')
@@ -191,6 +167,15 @@ describe('Get Prompt Operation', () => {
   });
 
   it('should not compile when variables empty', async () => {
+    mockHttpRequest.mockResolvedValue({
+      success: true,
+      data: {
+        content: JSON.stringify([{ content: 'Hello {{name}}' }]),
+        type: 'text',
+        promptVersionId: 'v123',
+      },
+    });
+
     mockContext.getNodeParameter
       .mockReturnValueOnce('getPrompt')
       .mockReturnValueOnce('my-prompt')
@@ -203,6 +188,15 @@ describe('Get Prompt Operation', () => {
   });
 
   it('should skip variables with empty keys', async () => {
+    mockHttpRequest.mockResolvedValue({
+      success: true,
+      data: {
+        content: JSON.stringify([{ content: 'Hello {{name}}' }]),
+        type: 'text',
+        promptVersionId: 'v123',
+      },
+    });
+
     mockContext.getNodeParameter
       .mockReturnValueOnce('getPrompt')
       .mockReturnValueOnce('my-prompt')

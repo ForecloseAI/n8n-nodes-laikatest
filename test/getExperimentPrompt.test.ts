@@ -1,63 +1,13 @@
 import { LaikaTest } from '../src/nodes/LaikaTest/LaikaTest.node';
 
-// Mock the js-client module
-jest.mock('@laikatest/js-client', () => {
-  // Create compiled prompt mock
-  const createCompiledPrompt = (content: string) => ({
-    getContent: jest.fn().mockReturnValue(content),
-    getType: jest.fn().mockReturnValue('chat'),
-    getExperimentId: jest.fn().mockReturnValue('exp-123'),
-    getBucketId: jest.fn().mockReturnValue('bucket-456'),
-    getPromptVersionId: jest.fn().mockReturnValue('pv-789'),
-    getPromptId: jest.fn().mockReturnValue('prompt-abc'),
-    compile: jest.fn(),
-  });
-
-  const mockPrompt = {
-    getContent: jest.fn().mockReturnValue('Welcome {{user}}!'),
-    getType: jest.fn().mockReturnValue('chat'),
-    getExperimentId: jest.fn().mockReturnValue('exp-123'),
-    getBucketId: jest.fn().mockReturnValue('bucket-456'),
-    getPromptVersionId: jest.fn().mockReturnValue('pv-789'),
-    getPromptId: jest.fn().mockReturnValue('prompt-abc'),
-    compile: jest.fn().mockImplementation((vars: Record<string, string>) => {
-      let content = 'Welcome {{user}}!';
-      for (const [key, value] of Object.entries(vars)) {
-        content = content.replace(`{{${key}}}`, value);
-      }
-      return createCompiledPrompt(content);
-    }),
-  };
-
-  return {
-    LaikaTest: jest.fn().mockImplementation(() => ({
-      getPrompt: jest.fn(),
-      getExperimentPrompt: jest.fn().mockResolvedValue(mockPrompt),
-      pushScore: jest.fn(),
-      destroy: jest.fn(),
-    })),
-    ValidationError: class ValidationError extends Error {
-      name = 'ValidationError';
-    },
-    AuthenticationError: class AuthenticationError extends Error {
-      name = 'AuthenticationError';
-    },
-    NetworkError: class NetworkError extends Error {
-      name = 'NetworkError';
-    },
-    LaikaServiceError: class LaikaServiceError extends Error {
-      name = 'LaikaServiceError';
-      statusCode = 500;
-    },
-  };
-});
-
 describe('Get Experimental Prompt Operation', () => {
   let node: LaikaTest;
   let mockContext: any;
+  let mockHttpRequest: jest.Mock;
 
   beforeEach(() => {
     node = new LaikaTest();
+    mockHttpRequest = jest.fn();
     jest.clearAllMocks();
 
     mockContext = {
@@ -69,6 +19,7 @@ describe('Get Experimental Prompt Operation', () => {
       getNodeParameter: jest.fn(),
       getNode: jest.fn().mockReturnValue({ name: 'LaikaTest' }),
       continueOnFail: jest.fn().mockReturnValue(false),
+      helpers: { httpRequest: mockHttpRequest },
     };
   });
 
@@ -80,8 +31,20 @@ describe('Get Experimental Prompt Operation', () => {
     expect(expTitleProp?.required).toBe(true);
   });
 
-  it('should call client.getExperimentPrompt with title and context', async () => {
-    const { LaikaTest } = require('@laikatest/js-client');
+  it('should call httpRequest with title and context', async () => {
+    mockHttpRequest.mockResolvedValue({
+      success: true,
+      data: {
+        experimentId: 'exp-123',
+        bucketId: 'bucket-456',
+        prompt: {
+          content: JSON.stringify([{ content: 'Welcome {{user}}!' }]),
+          type: 'text',
+          promptVersionId: 'pv-789',
+          promptId: 'prompt-abc',
+        },
+      },
+    });
 
     mockContext.getNodeParameter
       .mockReturnValueOnce('getExperimentPrompt')
@@ -89,19 +52,36 @@ describe('Get Experimental Prompt Operation', () => {
       .mockReturnValueOnce('user-123')
       .mockReturnValueOnce('session-456')
       .mockReturnValueOnce({ contextValues: [] })
-      .mockReturnValueOnce({}); // experimentVariables
+      .mockReturnValueOnce({});
 
     await node.execute.call(mockContext);
 
-    const clientInstance = LaikaTest.mock.results[0].value;
-    expect(clientInstance.getExperimentPrompt).toHaveBeenCalledWith(
-      'My Experiment',
-      { userId: 'user-123', sessionId: 'session-456' }
+    expect(mockHttpRequest).toHaveBeenCalledWith(
+      expect.objectContaining({
+        method: 'POST',
+        url: 'https://api.laikatest.com/api/v3/experiments/evaluate',
+        body: {
+          experimentTitle: 'My Experiment',
+          context: { userId: 'user-123', sessionId: 'session-456' },
+        },
+      })
     );
   });
 
   it('should include userId in context when provided', async () => {
-    const { LaikaTest } = require('@laikatest/js-client');
+    mockHttpRequest.mockResolvedValue({
+      success: true,
+      data: {
+        experimentId: 'exp-123',
+        bucketId: 'bucket-456',
+        prompt: {
+          content: JSON.stringify([{ content: 'Welcome' }]),
+          type: 'text',
+          promptVersionId: 'pv-789',
+          promptId: 'prompt-abc',
+        },
+      },
+    });
 
     mockContext.getNodeParameter
       .mockReturnValueOnce('getExperimentPrompt')
@@ -109,19 +89,34 @@ describe('Get Experimental Prompt Operation', () => {
       .mockReturnValueOnce('user-123')
       .mockReturnValueOnce('')
       .mockReturnValueOnce({ contextValues: [] })
-      .mockReturnValueOnce({}); // experimentVariables
+      .mockReturnValueOnce({});
 
     await node.execute.call(mockContext);
 
-    const clientInstance = LaikaTest.mock.results[0].value;
-    expect(clientInstance.getExperimentPrompt).toHaveBeenCalledWith(
-      'My Experiment',
-      { userId: 'user-123' }
+    expect(mockHttpRequest).toHaveBeenCalledWith(
+      expect.objectContaining({
+        body: {
+          experimentTitle: 'My Experiment',
+          context: { userId: 'user-123' },
+        },
+      })
     );
   });
 
   it('should include sessionId in context when provided', async () => {
-    const { LaikaTest } = require('@laikatest/js-client');
+    mockHttpRequest.mockResolvedValue({
+      success: true,
+      data: {
+        experimentId: 'exp-123',
+        bucketId: 'bucket-456',
+        prompt: {
+          content: JSON.stringify([{ content: 'Welcome' }]),
+          type: 'text',
+          promptVersionId: 'pv-789',
+          promptId: 'prompt-abc',
+        },
+      },
+    });
 
     mockContext.getNodeParameter
       .mockReturnValueOnce('getExperimentPrompt')
@@ -129,19 +124,34 @@ describe('Get Experimental Prompt Operation', () => {
       .mockReturnValueOnce('')
       .mockReturnValueOnce('session-456')
       .mockReturnValueOnce({ contextValues: [] })
-      .mockReturnValueOnce({}); // experimentVariables
+      .mockReturnValueOnce({});
 
     await node.execute.call(mockContext);
 
-    const clientInstance = LaikaTest.mock.results[0].value;
-    expect(clientInstance.getExperimentPrompt).toHaveBeenCalledWith(
-      'My Experiment',
-      { sessionId: 'session-456' }
+    expect(mockHttpRequest).toHaveBeenCalledWith(
+      expect.objectContaining({
+        body: {
+          experimentTitle: 'My Experiment',
+          context: { sessionId: 'session-456' },
+        },
+      })
     );
   });
 
   it('should include additionalContext fields', async () => {
-    const { LaikaTest } = require('@laikatest/js-client');
+    mockHttpRequest.mockResolvedValue({
+      success: true,
+      data: {
+        experimentId: 'exp-123',
+        bucketId: 'bucket-456',
+        prompt: {
+          content: JSON.stringify([{ content: 'Welcome' }]),
+          type: 'text',
+          promptVersionId: 'pv-789',
+          promptId: 'prompt-abc',
+        },
+      },
+    });
 
     mockContext.getNodeParameter
       .mockReturnValueOnce('getExperimentPrompt')
@@ -154,31 +164,48 @@ describe('Get Experimental Prompt Operation', () => {
           { key: 'tier', value: 'premium' },
         ],
       })
-      .mockReturnValueOnce({}); // experimentVariables
+      .mockReturnValueOnce({});
 
     await node.execute.call(mockContext);
 
-    const clientInstance = LaikaTest.mock.results[0].value;
-    expect(clientInstance.getExperimentPrompt).toHaveBeenCalledWith(
-      'My Experiment',
-      { userId: 'user-123', feature: 'pricing', tier: 'premium' }
+    expect(mockHttpRequest).toHaveBeenCalledWith(
+      expect.objectContaining({
+        body: {
+          experimentTitle: 'My Experiment',
+          context: { userId: 'user-123', feature: 'pricing', tier: 'premium' },
+        },
+      })
     );
   });
 
   it('should return complete experiment metadata', async () => {
+    mockHttpRequest.mockResolvedValue({
+      success: true,
+      data: {
+        experimentId: 'exp-123',
+        bucketId: 'bucket-456',
+        prompt: {
+          content: JSON.stringify([{ content: 'Welcome {{user}}!' }]),
+          type: 'text',
+          promptVersionId: 'pv-789',
+          promptId: 'prompt-abc',
+        },
+      },
+    });
+
     mockContext.getNodeParameter
       .mockReturnValueOnce('getExperimentPrompt')
       .mockReturnValueOnce('My Experiment')
       .mockReturnValueOnce('user-123')
       .mockReturnValueOnce('')
       .mockReturnValueOnce({ contextValues: [] })
-      .mockReturnValueOnce({}); // experimentVariables
+      .mockReturnValueOnce({});
 
     const result = await node.execute.call(mockContext);
 
     expect(result[0][0].json).toEqual({
       content: 'Welcome {{user}}!',
-      type: 'chat',
+      type: 'text',
       experimentId: 'exp-123',
       bucketId: 'bucket-456',
       promptVersionId: 'pv-789',
@@ -198,6 +225,20 @@ describe('Get Experimental Prompt Operation', () => {
   });
 
   it('should compile experiment prompt when variables provided', async () => {
+    mockHttpRequest.mockResolvedValue({
+      success: true,
+      data: {
+        experimentId: 'exp-123',
+        bucketId: 'bucket-456',
+        prompt: {
+          content: JSON.stringify([{ content: 'Welcome {{user}}!' }]),
+          type: 'text',
+          promptVersionId: 'pv-789',
+          promptId: 'prompt-abc',
+        },
+      },
+    });
+
     mockContext.getNodeParameter
       .mockReturnValueOnce('getExperimentPrompt')
       .mockReturnValueOnce('My Experiment')
@@ -214,6 +255,20 @@ describe('Get Experimental Prompt Operation', () => {
   });
 
   it('should not compile when experiment variables empty', async () => {
+    mockHttpRequest.mockResolvedValue({
+      success: true,
+      data: {
+        experimentId: 'exp-123',
+        bucketId: 'bucket-456',
+        prompt: {
+          content: JSON.stringify([{ content: 'Welcome {{user}}!' }]),
+          type: 'text',
+          promptVersionId: 'pv-789',
+          promptId: 'prompt-abc',
+        },
+      },
+    });
+
     mockContext.getNodeParameter
       .mockReturnValueOnce('getExperimentPrompt')
       .mockReturnValueOnce('My Experiment')

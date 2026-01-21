@@ -1,63 +1,13 @@
 import { LaikaTest } from '../src/nodes/LaikaTest/LaikaTest.node';
 
-// Create mock client instance
-const mockClientInstance = {
-  getPrompt: jest.fn(),
-  getExperimentPrompt: jest.fn(),
-  pushScore: jest.fn(),
-  destroy: jest.fn(),
-};
-
-// Mock error classes - defined inline in the mock
-class ValidationErrorMock extends Error {
-  name = 'ValidationError';
-}
-class AuthenticationErrorMock extends Error {
-  name = 'AuthenticationError';
-}
-class NetworkErrorMock extends Error {
-  name = 'NetworkError';
-  originalError: Error;
-  constructor(message: string, originalError: Error) {
-    super(message);
-    this.originalError = originalError;
-  }
-}
-class LaikaServiceErrorMock extends Error {
-  name = 'LaikaServiceError';
-  statusCode: number;
-  response: any;
-  constructor(message: string, statusCode: number, response: any) {
-    super(message);
-    this.statusCode = statusCode;
-    this.response = response;
-  }
-}
-
-// Mock the js-client module
-jest.mock('@laikatest/js-client', () => ({
-  LaikaTest: jest.fn().mockImplementation(() => mockClientInstance),
-  ValidationError: class ValidationError extends Error {
-    name = 'ValidationError';
-  },
-  AuthenticationError: class AuthenticationError extends Error {
-    name = 'AuthenticationError';
-  },
-  NetworkError: class NetworkError extends Error {
-    name = 'NetworkError';
-  },
-  LaikaServiceError: class LaikaServiceError extends Error {
-    name = 'LaikaServiceError';
-    statusCode = 500;
-  },
-}));
-
 describe('Error Handling', () => {
   let node: LaikaTest;
   let mockContext: any;
+  let mockHttpRequest: jest.Mock;
 
   beforeEach(() => {
     node = new LaikaTest();
+    mockHttpRequest = jest.fn();
     jest.clearAllMocks();
 
     mockContext = {
@@ -69,91 +19,49 @@ describe('Error Handling', () => {
       getNodeParameter: jest.fn(),
       getNode: jest.fn().mockReturnValue({ name: 'LaikaTest' }),
       continueOnFail: jest.fn().mockReturnValue(false),
+      helpers: { httpRequest: mockHttpRequest },
     };
   });
 
-  it('should create client at start of execute', async () => {
-    const { LaikaTest } = require('@laikatest/js-client');
-
-    mockClientInstance.getPrompt.mockResolvedValue({
-      getContent: () => 'content',
-      getType: () => 'text',
-      getPromptVersionId: () => 'v1',
+  it('should throw error when API returns success: false', async () => {
+    mockHttpRequest.mockResolvedValue({
+      success: false,
+      error: 'Prompt not found',
     });
 
     mockContext.getNodeParameter
       .mockReturnValueOnce('getPrompt')
-      .mockReturnValueOnce('test-prompt')
+      .mockReturnValueOnce('nonexistent-prompt')
       .mockReturnValueOnce('')
-      .mockReturnValueOnce({}); // variables
+      .mockReturnValueOnce({});
 
-    await node.execute.call(mockContext);
-
-    expect(LaikaTest).toHaveBeenCalledWith('test-api-key', {
-      baseUrl: 'https://api.laikatest.com',
-      cacheEnabled: false,
-    });
-  });
-
-  it('should destroy client after successful execution', async () => {
-    mockClientInstance.getPrompt.mockResolvedValue({
-      getContent: () => 'content',
-      getType: () => 'text',
-      getPromptVersionId: () => 'v1',
-    });
-
-    mockContext.getNodeParameter
-      .mockReturnValueOnce('getPrompt')
-      .mockReturnValueOnce('test-prompt')
-      .mockReturnValueOnce('')
-      .mockReturnValueOnce({}); // variables
-
-    await node.execute.call(mockContext);
-
-    expect(mockClientInstance.destroy).toHaveBeenCalled();
-  });
-
-  it('should destroy client even when error occurs', async () => {
-    mockClientInstance.getPrompt.mockRejectedValue(
-      new ValidationErrorMock('Invalid prompt name')
-    );
-
-    mockContext.getNodeParameter
-      .mockReturnValueOnce('getPrompt')
-      .mockReturnValueOnce('')
-      .mockReturnValueOnce('')
-      .mockReturnValueOnce({}); // variables
-
-    try {
-      await node.execute.call(mockContext);
-    } catch {
-      // Expected to throw
-    }
-
-    expect(mockClientInstance.destroy).toHaveBeenCalled();
+    await expect(node.execute.call(mockContext)).rejects.toThrow();
   });
 
   it('should continue processing items when continueOnFail is true', async () => {
     mockContext.getInputData.mockReturnValue([{ json: {} }, { json: {} }]);
     mockContext.continueOnFail.mockReturnValue(true);
 
-    mockClientInstance.getPrompt
-      .mockRejectedValueOnce(new ValidationErrorMock('First item error'))
+    mockHttpRequest
+      .mockResolvedValueOnce({ success: false, error: 'First item error' })
       .mockResolvedValueOnce({
-        getContent: () => 'second content',
-        getType: () => 'text',
-        getPromptVersionId: () => 'v2',
+        success: true,
+        data: {
+          content: JSON.stringify([{ content: 'second content' }]),
+          type: 'text',
+          promptVersionId: 'v2',
+        },
       });
 
     mockContext.getNodeParameter
       .mockReturnValueOnce('getPrompt')
       .mockReturnValueOnce('bad-prompt')
       .mockReturnValueOnce('')
-      .mockReturnValueOnce({}) // variables
+      .mockReturnValueOnce({})
       .mockReturnValueOnce('getPrompt')
       .mockReturnValueOnce('good-prompt')
       .mockReturnValueOnce('')
-      .mockReturnValueOnce({}); // variables
+      .mockReturnValueOnce({});
 
     const result = await node.execute.call(mockContext);
 
@@ -170,92 +78,106 @@ describe('Error Handling', () => {
     mockContext.getInputData.mockReturnValue([{ json: {} }, { json: {} }]);
     mockContext.continueOnFail.mockReturnValue(false);
 
-    mockClientInstance.getPrompt.mockRejectedValue(
-      new ValidationErrorMock('First item error')
-    );
+    mockHttpRequest.mockResolvedValue({
+      success: false,
+      error: 'First item error',
+    });
 
     mockContext.getNodeParameter
       .mockReturnValueOnce('getPrompt')
       .mockReturnValueOnce('bad-prompt')
       .mockReturnValueOnce('')
-      .mockReturnValueOnce({}); // variables
+      .mockReturnValueOnce({});
 
     await expect(node.execute.call(mockContext)).rejects.toThrow();
 
     // Only one call since it stopped on first error
-    expect(mockClientInstance.getPrompt).toHaveBeenCalledTimes(1);
+    expect(mockHttpRequest).toHaveBeenCalledTimes(1);
   });
 
-  it('should map ValidationError to NodeOperationError', async () => {
-    mockClientInstance.getPrompt.mockRejectedValue(
-      new ValidationErrorMock('Invalid prompt name')
-    );
-
-    mockContext.getNodeParameter
-      .mockReturnValueOnce('getPrompt')
-      .mockReturnValueOnce('')
-      .mockReturnValueOnce('')
-      .mockReturnValueOnce({}); // variables
-
-    await expect(node.execute.call(mockContext)).rejects.toThrow(
-      'Invalid prompt name'
-    );
-  });
-
-  it('should map AuthenticationError to NodeApiError with 401', async () => {
-    mockClientInstance.getPrompt.mockRejectedValue(
-      new AuthenticationErrorMock('Invalid API key')
-    );
+  it('should include Authorization header with Bearer token', async () => {
+    mockHttpRequest.mockResolvedValue({
+      success: true,
+      data: {
+        content: JSON.stringify([{ content: 'content' }]),
+        type: 'text',
+        promptVersionId: 'v123',
+      },
+    });
 
     mockContext.getNodeParameter
       .mockReturnValueOnce('getPrompt')
       .mockReturnValueOnce('test-prompt')
       .mockReturnValueOnce('')
-      .mockReturnValueOnce({}); // variables
+      .mockReturnValueOnce({});
 
-    try {
-      await node.execute.call(mockContext);
-      fail('Expected error to be thrown');
-    } catch (error: any) {
-      expect(error.message).toContain('Invalid API key');
-    }
+    await node.execute.call(mockContext);
+
+    expect(mockHttpRequest).toHaveBeenCalledWith(
+      expect.objectContaining({
+        headers: expect.objectContaining({
+          Authorization: 'Bearer test-api-key',
+        }),
+      })
+    );
   });
 
-  it('should map LaikaServiceError to NodeApiError with status code', async () => {
-    mockClientInstance.getPrompt.mockRejectedValue(
-      new LaikaServiceErrorMock('Prompt not found', 404, {})
-    );
+  it('should use custom baseUrl from credentials', async () => {
+    mockContext.getCredentials.mockResolvedValue({
+      apiKey: 'test-api-key',
+      baseUrl: 'https://custom.example.com',
+    });
 
-    mockContext.getNodeParameter
-      .mockReturnValueOnce('getPrompt')
-      .mockReturnValueOnce('nonexistent')
-      .mockReturnValueOnce('')
-      .mockReturnValueOnce({}); // variables
-
-    try {
-      await node.execute.call(mockContext);
-      fail('Expected error to be thrown');
-    } catch (error: any) {
-      expect(error.message).toContain('Prompt not found');
-    }
-  });
-
-  it('should map NetworkError to NodeApiError', async () => {
-    mockClientInstance.getPrompt.mockRejectedValue(
-      new NetworkErrorMock('Connection timeout', new Error('ETIMEDOUT'))
-    );
+    mockHttpRequest.mockResolvedValue({
+      success: true,
+      data: {
+        content: JSON.stringify([{ content: 'content' }]),
+        type: 'text',
+        promptVersionId: 'v123',
+      },
+    });
 
     mockContext.getNodeParameter
       .mockReturnValueOnce('getPrompt')
       .mockReturnValueOnce('test-prompt')
       .mockReturnValueOnce('')
-      .mockReturnValueOnce({}); // variables
+      .mockReturnValueOnce({});
 
-    try {
-      await node.execute.call(mockContext);
-      fail('Expected error to be thrown');
-    } catch (error: any) {
-      expect(error.message).toContain('Connection timeout');
-    }
+    await node.execute.call(mockContext);
+
+    expect(mockHttpRequest).toHaveBeenCalledWith(
+      expect.objectContaining({
+        url: expect.stringContaining('https://custom.example.com'),
+      })
+    );
+  });
+
+  it('should use default baseUrl when not provided', async () => {
+    mockContext.getCredentials.mockResolvedValue({
+      apiKey: 'test-api-key',
+    });
+
+    mockHttpRequest.mockResolvedValue({
+      success: true,
+      data: {
+        content: JSON.stringify([{ content: 'content' }]),
+        type: 'text',
+        promptVersionId: 'v123',
+      },
+    });
+
+    mockContext.getNodeParameter
+      .mockReturnValueOnce('getPrompt')
+      .mockReturnValueOnce('test-prompt')
+      .mockReturnValueOnce('')
+      .mockReturnValueOnce({});
+
+    await node.execute.call(mockContext);
+
+    expect(mockHttpRequest).toHaveBeenCalledWith(
+      expect.objectContaining({
+        url: expect.stringContaining('https://api.laikatest.com'),
+      })
+    );
   });
 });

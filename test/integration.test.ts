@@ -1,37 +1,13 @@
 import { LaikaTest } from '../src/nodes/LaikaTest/LaikaTest.node';
 
-// Create mock client instance
-const mockClientInstance = {
-  getPrompt: jest.fn(),
-  getExperimentPrompt: jest.fn(),
-  pushScore: jest.fn(),
-  destroy: jest.fn(),
-};
-
-// Mock the js-client module for integration tests
-jest.mock('@laikatest/js-client', () => ({
-  LaikaTest: jest.fn().mockImplementation(() => mockClientInstance),
-  ValidationError: class ValidationError extends Error {
-    name = 'ValidationError';
-  },
-  AuthenticationError: class AuthenticationError extends Error {
-    name = 'AuthenticationError';
-  },
-  NetworkError: class NetworkError extends Error {
-    name = 'NetworkError';
-  },
-  LaikaServiceError: class LaikaServiceError extends Error {
-    name = 'LaikaServiceError';
-    statusCode = 500;
-  },
-}));
-
 describe('Integration Tests', () => {
   let node: LaikaTest;
   let mockContext: any;
+  let mockHttpRequest: jest.Mock;
 
   beforeEach(() => {
     node = new LaikaTest();
+    mockHttpRequest = jest.fn();
     jest.clearAllMocks();
 
     mockContext = {
@@ -43,23 +19,27 @@ describe('Integration Tests', () => {
       getNodeParameter: jest.fn(),
       getNode: jest.fn().mockReturnValue({ name: 'LaikaTest' }),
       continueOnFail: jest.fn().mockReturnValue(false),
+      helpers: { httpRequest: mockHttpRequest },
     };
   });
 
   it('should complete getPrompt workflow end-to-end', async () => {
     mockContext.getInputData.mockReturnValue([{ json: { input: 'test' } }]);
 
-    mockClientInstance.getPrompt.mockResolvedValue({
-      getContent: () => 'You are a helpful assistant.',
-      getType: () => 'text',
-      getPromptVersionId: () => 'pv-100',
+    mockHttpRequest.mockResolvedValue({
+      success: true,
+      data: {
+        content: JSON.stringify([{ content: 'You are a helpful assistant.' }]),
+        type: 'text',
+        promptVersionId: 'pv-100',
+      },
     });
 
     mockContext.getNodeParameter
       .mockReturnValueOnce('getPrompt')
       .mockReturnValueOnce('assistant-prompt')
       .mockReturnValueOnce('')
-      .mockReturnValueOnce({}); // variables
+      .mockReturnValueOnce({});
 
     const result = await node.execute.call(mockContext);
 
@@ -75,13 +55,20 @@ describe('Integration Tests', () => {
   it('should complete getExperimentPrompt workflow end-to-end', async () => {
     mockContext.getInputData.mockReturnValue([{ json: { userId: 'user-1' } }]);
 
-    mockClientInstance.getExperimentPrompt.mockResolvedValue({
-      getContent: () => [{ role: 'system', content: 'Variant A prompt' }],
-      getType: () => 'chat',
-      getExperimentId: () => 'exp-200',
-      getBucketId: () => 'bucket-A',
-      getPromptVersionId: () => 'pv-201',
-      getPromptId: () => 'prompt-50',
+    mockHttpRequest.mockResolvedValue({
+      success: true,
+      data: {
+        experimentId: 'exp-200',
+        bucketId: 'bucket-A',
+        prompt: {
+          content: JSON.stringify([
+            { role: 'system', content: 'Variant A prompt' },
+          ]),
+          type: 'chat',
+          promptVersionId: 'pv-201',
+          promptId: 'prompt-50',
+        },
+      },
     });
 
     mockContext.getNodeParameter
@@ -90,7 +77,7 @@ describe('Integration Tests', () => {
       .mockReturnValueOnce('user-1')
       .mockReturnValueOnce('')
       .mockReturnValueOnce({ contextValues: [] })
-      .mockReturnValueOnce({}); // experimentVariables
+      .mockReturnValueOnce({});
 
     const result = await node.execute.call(mockContext);
 
@@ -107,9 +94,8 @@ describe('Integration Tests', () => {
   it('should complete pushScores workflow end-to-end', async () => {
     mockContext.getInputData.mockReturnValue([{ json: {} }]);
 
-    mockClientInstance.pushScore.mockResolvedValue({
+    mockHttpRequest.mockResolvedValue({
       success: true,
-      statusCode: 200,
       data: { recorded: 2 },
     });
 
@@ -135,15 +121,21 @@ describe('Integration Tests', () => {
       data: { recorded: 2 },
     });
 
-    expect(mockClientInstance.pushScore).toHaveBeenCalledWith(
-      'exp-200',
-      'bucket-A',
-      'pv-201',
-      [
-        { name: 'conversion', type: 'bool', value: true },
-        { name: 'time_on_page', type: 'float', value: 45.5 },
-      ],
-      { userId: 'user-1' }
+    expect(mockHttpRequest).toHaveBeenCalledWith(
+      expect.objectContaining({
+        method: 'POST',
+        url: 'https://api.laikatest.com/api/v1/scores',
+        body: expect.objectContaining({
+          expId: 'exp-200',
+          bucketId: 'bucket-A',
+          promptVersionId: 'pv-201',
+          userId: 'user-1',
+          scores: [
+            { name: 'conversion', type: 'bool', value: true },
+            { name: 'time_on_page', type: 'float', value: 45.5 },
+          ],
+        }),
+      })
     );
   });
 
@@ -151,13 +143,18 @@ describe('Integration Tests', () => {
     // First call: getExperimentPrompt
     mockContext.getInputData.mockReturnValue([{ json: {} }]);
 
-    mockClientInstance.getExperimentPrompt.mockResolvedValue({
-      getContent: () => 'Experiment content',
-      getType: () => 'text',
-      getExperimentId: () => 'exp-300',
-      getBucketId: () => 'bucket-B',
-      getPromptVersionId: () => 'pv-301',
-      getPromptId: () => 'prompt-60',
+    mockHttpRequest.mockResolvedValue({
+      success: true,
+      data: {
+        experimentId: 'exp-300',
+        bucketId: 'bucket-B',
+        prompt: {
+          content: JSON.stringify([{ content: 'Experiment content' }]),
+          type: 'text',
+          promptVersionId: 'pv-301',
+          promptId: 'prompt-60',
+        },
+      },
     });
 
     mockContext.getNodeParameter
@@ -166,7 +163,7 @@ describe('Integration Tests', () => {
       .mockReturnValueOnce('user-123')
       .mockReturnValueOnce('session-456')
       .mockReturnValueOnce({ contextValues: [] })
-      .mockReturnValueOnce({}); // experimentVariables
+      .mockReturnValueOnce({});
 
     const expResult = await node.execute.call(mockContext);
     const expOutput = expResult[0][0].json as any;
@@ -180,9 +177,8 @@ describe('Integration Tests', () => {
     jest.clearAllMocks();
 
     // Second call: pushScores using output from first call
-    mockClientInstance.pushScore.mockResolvedValue({
+    mockHttpRequest.mockResolvedValue({
       success: true,
-      statusCode: 200,
       data: {},
     });
 
@@ -213,36 +209,45 @@ describe('Integration Tests', () => {
       { json: { promptName: 'prompt-3' } },
     ]);
 
-    mockClientInstance.getPrompt
+    mockHttpRequest
       .mockResolvedValueOnce({
-        getContent: () => 'Content 1',
-        getType: () => 'text',
-        getPromptVersionId: () => 'v1',
+        success: true,
+        data: {
+          content: JSON.stringify([{ content: 'Content 1' }]),
+          type: 'text',
+          promptVersionId: 'v1',
+        },
       })
       .mockResolvedValueOnce({
-        getContent: () => 'Content 2',
-        getType: () => 'text',
-        getPromptVersionId: () => 'v2',
+        success: true,
+        data: {
+          content: JSON.stringify([{ content: 'Content 2' }]),
+          type: 'text',
+          promptVersionId: 'v2',
+        },
       })
       .mockResolvedValueOnce({
-        getContent: () => 'Content 3',
-        getType: () => 'text',
-        getPromptVersionId: () => 'v3',
+        success: true,
+        data: {
+          content: JSON.stringify([{ content: 'Content 3' }]),
+          type: 'text',
+          promptVersionId: 'v3',
+        },
       });
 
     mockContext.getNodeParameter
       .mockReturnValueOnce('getPrompt')
       .mockReturnValueOnce('prompt-1')
       .mockReturnValueOnce('')
-      .mockReturnValueOnce({}) // variables
+      .mockReturnValueOnce({})
       .mockReturnValueOnce('getPrompt')
       .mockReturnValueOnce('prompt-2')
       .mockReturnValueOnce('')
-      .mockReturnValueOnce({}) // variables
+      .mockReturnValueOnce({})
       .mockReturnValueOnce('getPrompt')
       .mockReturnValueOnce('prompt-3')
       .mockReturnValueOnce('')
-      .mockReturnValueOnce({}); // variables
+      .mockReturnValueOnce({});
 
     const result = await node.execute.call(mockContext);
 

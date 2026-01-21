@@ -1,40 +1,13 @@
 import { LaikaTest } from '../src/nodes/LaikaTest/LaikaTest.node';
 
-// Mock the js-client module
-jest.mock('@laikatest/js-client', () => {
-  return {
-    LaikaTest: jest.fn().mockImplementation(() => ({
-      getPrompt: jest.fn(),
-      getExperimentPrompt: jest.fn(),
-      pushScore: jest.fn().mockResolvedValue({
-        success: true,
-        statusCode: 200,
-        data: { message: 'Scores recorded' },
-      }),
-      destroy: jest.fn(),
-    })),
-    ValidationError: class ValidationError extends Error {
-      name = 'ValidationError';
-    },
-    AuthenticationError: class AuthenticationError extends Error {
-      name = 'AuthenticationError';
-    },
-    NetworkError: class NetworkError extends Error {
-      name = 'NetworkError';
-    },
-    LaikaServiceError: class LaikaServiceError extends Error {
-      name = 'LaikaServiceError';
-      statusCode = 500;
-    },
-  };
-});
-
 describe('Push Scores Operation', () => {
   let node: LaikaTest;
   let mockContext: any;
+  let mockHttpRequest: jest.Mock;
 
   beforeEach(() => {
     node = new LaikaTest();
+    mockHttpRequest = jest.fn();
     jest.clearAllMocks();
 
     mockContext = {
@@ -46,6 +19,7 @@ describe('Push Scores Operation', () => {
       getNodeParameter: jest.fn(),
       getNode: jest.fn().mockReturnValue({ name: 'LaikaTest' }),
       continueOnFail: jest.fn().mockReturnValue(false),
+      helpers: { httpRequest: mockHttpRequest },
     };
   });
 
@@ -71,8 +45,8 @@ describe('Push Scores Operation', () => {
       .mockReturnValueOnce('exp-123')
       .mockReturnValueOnce('bucket-456')
       .mockReturnValueOnce('pv-789')
-      .mockReturnValueOnce('') // userId empty
-      .mockReturnValueOnce('') // sessionId empty
+      .mockReturnValueOnce('')
+      .mockReturnValueOnce('')
       .mockReturnValueOnce({
         scoreValues: [{ name: 'rating', type: 'int', value: '5' }],
       });
@@ -98,7 +72,10 @@ describe('Push Scores Operation', () => {
   });
 
   it('should convert "5" with type int to { type: "int", value: 5 }', async () => {
-    const { LaikaTest } = require('@laikatest/js-client');
+    mockHttpRequest.mockResolvedValue({
+      success: true,
+      data: { message: 'Scores recorded' },
+    });
 
     mockContext.getNodeParameter
       .mockReturnValueOnce('pushScores')
@@ -113,18 +90,20 @@ describe('Push Scores Operation', () => {
 
     await node.execute.call(mockContext);
 
-    const clientInstance = LaikaTest.mock.results[0].value;
-    expect(clientInstance.pushScore).toHaveBeenCalledWith(
-      'exp-123',
-      'bucket-456',
-      'pv-789',
-      [{ name: 'rating', type: 'int', value: 5 }],
-      { userId: 'user-123' }
+    expect(mockHttpRequest).toHaveBeenCalledWith(
+      expect.objectContaining({
+        body: expect.objectContaining({
+          scores: [{ name: 'rating', type: 'int', value: 5 }],
+        }),
+      })
     );
   });
 
   it('should convert "0.95" with type float to { type: "float", value: 0.95 }', async () => {
-    const { LaikaTest } = require('@laikatest/js-client');
+    mockHttpRequest.mockResolvedValue({
+      success: true,
+      data: { message: 'Scores recorded' },
+    });
 
     mockContext.getNodeParameter
       .mockReturnValueOnce('pushScores')
@@ -139,18 +118,20 @@ describe('Push Scores Operation', () => {
 
     await node.execute.call(mockContext);
 
-    const clientInstance = LaikaTest.mock.results[0].value;
-    expect(clientInstance.pushScore).toHaveBeenCalledWith(
-      'exp-123',
-      'bucket-456',
-      'pv-789',
-      [{ name: 'accuracy', type: 'float', value: 0.95 }],
-      { userId: 'user-123' }
+    expect(mockHttpRequest).toHaveBeenCalledWith(
+      expect.objectContaining({
+        body: expect.objectContaining({
+          scores: [{ name: 'accuracy', type: 'float', value: 0.95 }],
+        }),
+      })
     );
   });
 
   it('should convert "true" with type bool to { type: "bool", value: true }', async () => {
-    const { LaikaTest } = require('@laikatest/js-client');
+    mockHttpRequest.mockResolvedValue({
+      success: true,
+      data: { message: 'Scores recorded' },
+    });
 
     mockContext.getNodeParameter
       .mockReturnValueOnce('pushScores')
@@ -165,18 +146,20 @@ describe('Push Scores Operation', () => {
 
     await node.execute.call(mockContext);
 
-    const clientInstance = LaikaTest.mock.results[0].value;
-    expect(clientInstance.pushScore).toHaveBeenCalledWith(
-      'exp-123',
-      'bucket-456',
-      'pv-789',
-      [{ name: 'helpful', type: 'bool', value: true }],
-      { userId: 'user-123' }
+    expect(mockHttpRequest).toHaveBeenCalledWith(
+      expect.objectContaining({
+        body: expect.objectContaining({
+          scores: [{ name: 'helpful', type: 'bool', value: true }],
+        }),
+      })
     );
   });
 
   it('should pass string values unchanged', async () => {
-    const { LaikaTest } = require('@laikatest/js-client');
+    mockHttpRequest.mockResolvedValue({
+      success: true,
+      data: { message: 'Scores recorded' },
+    });
 
     mockContext.getNodeParameter
       .mockReturnValueOnce('pushScores')
@@ -191,13 +174,12 @@ describe('Push Scores Operation', () => {
 
     await node.execute.call(mockContext);
 
-    const clientInstance = LaikaTest.mock.results[0].value;
-    expect(clientInstance.pushScore).toHaveBeenCalledWith(
-      'exp-123',
-      'bucket-456',
-      'pv-789',
-      [{ name: 'feedback', type: 'string', value: 'Great!' }],
-      { userId: 'user-123' }
+    expect(mockHttpRequest).toHaveBeenCalledWith(
+      expect.objectContaining({
+        body: expect.objectContaining({
+          scores: [{ name: 'feedback', type: 'string', value: 'Great!' }],
+        }),
+      })
     );
   });
 
@@ -236,6 +218,11 @@ describe('Push Scores Operation', () => {
   });
 
   it('should return { success, statusCode, data }', async () => {
+    mockHttpRequest.mockResolvedValue({
+      success: true,
+      data: { message: 'Scores recorded' },
+    });
+
     mockContext.getNodeParameter
       .mockReturnValueOnce('pushScores')
       .mockReturnValueOnce('exp-123')
@@ -254,5 +241,64 @@ describe('Push Scores Operation', () => {
       statusCode: 200,
       data: { message: 'Scores recorded' },
     });
+  });
+
+  it('should include userId in request when provided', async () => {
+    mockHttpRequest.mockResolvedValue({
+      success: true,
+      data: { message: 'Scores recorded' },
+    });
+
+    mockContext.getNodeParameter
+      .mockReturnValueOnce('pushScores')
+      .mockReturnValueOnce('exp-123')
+      .mockReturnValueOnce('bucket-456')
+      .mockReturnValueOnce('pv-789')
+      .mockReturnValueOnce('user-123')
+      .mockReturnValueOnce('')
+      .mockReturnValueOnce({
+        scoreValues: [{ name: 'rating', type: 'int', value: '5' }],
+      });
+
+    await node.execute.call(mockContext);
+
+    expect(mockHttpRequest).toHaveBeenCalledWith(
+      expect.objectContaining({
+        body: expect.objectContaining({
+          userId: 'user-123',
+          expId: 'exp-123',
+          bucketId: 'bucket-456',
+          promptVersionId: 'pv-789',
+        }),
+      })
+    );
+  });
+
+  it('should include sessionId in request when provided', async () => {
+    mockHttpRequest.mockResolvedValue({
+      success: true,
+      data: { message: 'Scores recorded' },
+    });
+
+    mockContext.getNodeParameter
+      .mockReturnValueOnce('pushScores')
+      .mockReturnValueOnce('exp-123')
+      .mockReturnValueOnce('bucket-456')
+      .mockReturnValueOnce('pv-789')
+      .mockReturnValueOnce('')
+      .mockReturnValueOnce('session-456')
+      .mockReturnValueOnce({
+        scoreValues: [{ name: 'rating', type: 'int', value: '5' }],
+      });
+
+    await node.execute.call(mockContext);
+
+    expect(mockHttpRequest).toHaveBeenCalledWith(
+      expect.objectContaining({
+        body: expect.objectContaining({
+          sessionId: 'session-456',
+        }),
+      })
+    );
   });
 });
