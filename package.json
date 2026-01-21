@@ -23,7 +23,9 @@
   ],
   "main": "dist/index.js",
   "scripts": {
-    "build": "tsc && npm run copy-assets",
+    "build": "npm run build:bundle && npm run build:types && npm run copy-assets",
+    "build:bundle": "node esbuild.config.mjs",
+    "build:types": "tsc --emitDeclarationOnly --declaration --outDir dist",
     "copy-assets": "cp src/nodes/LaikaTest/*.svg dist/nodes/LaikaTest/",
     "dev": "tsc --watch",
     "lint": "eslint .",
@@ -39,13 +41,12 @@
       "dist/nodes/LaikaTest/LaikaTest.node.js"
     ]
   },
-  "dependencies": {
-    "@laikatest/js-client": "^2.1.2"
-  },
   "devDependencies": {
+    "@laikatest/js-client": "^2.1.2",
     "@eslint/js": "^9.39.2",
     "@types/jest": "^29.5.0",
     "@types/node": "^20.0.0",
+    "esbuild": "^0.27.2",
     "eslint": "^9.39.2",
     "jest": "^29.5.0",
     "n8n-core": "*",
